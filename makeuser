@@ -1,11 +1,116 @@
-#!/usr/bin/python3
+#!/bin/bash
+# ---------------------------------------------------------------------------
+# makeuser - tilde.team new user creation
 
-import os,argparse
+# Copyright 2018, Ben Harris <ben@tilde.team>
+  
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 
-parser = argparse.ArgumentParser(prog="makeuser",description="A user adding script.")
-parser.add_argument("username",help="Username of user.")
-parser.add_argument("email",help="Email of user.")
-parser.add_argument("key",help="The user's SSH pubkey.")
-args = parser.parse_args()
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License at <http://www.gnu.org/licenses/> for
+# more details.
 
-print(args.username,args.email,args.key)
+# Usage: makeuser [-h|--help]
+
+# Revision history:
+# 2018-09-20 Created by new_script ver. 3.3
+# ---------------------------------------------------------------------------
+
+PROGNAME=${0##*/}
+VERSION="0.1"
+
+clean_up() { # Perform pre-exit housekeeping
+  return
+}
+
+error_exit() {
+  echo -e "${PROGNAME}: ${1:-"Unknown Error"}" >&2
+  clean_up
+  exit 1
+}
+
+graceful_exit() {
+  clean_up
+  exit
+}
+
+signal_exit() { # Handle trapped signals
+  case $1 in
+    INT)
+      error_exit "Program interrupted by user" ;;
+    TERM)
+      echo -e "\n$PROGNAME: Program terminated" >&2
+      graceful_exit ;;
+    *)
+      error_exit "$PROGNAME: Terminating on unknown signal" ;;
+  esac
+}
+
+usage() {
+  echo -e "usage: $PROGNAME [-h|--help] <username> <email> <pubkey>"
+}
+
+help_message() {
+  cat <<- _EOF_
+  $PROGNAME ver. $VERSION
+  tilde.team new user creation
+
+  $(usage)
+
+  Options:
+  -h, --help  Display this help message and exit.
+
+  NOTE: You must be the superuser to run this script.
+
+_EOF_
+  return
+}
+
+# Trap signals
+trap "signal_exit TERM" TERM HUP
+trap "signal_exit INT"  INT
+
+# Check for root UID
+if [[ $(id -u) != 0 ]]; then
+  error_exit "you must be the superuser to run this script."
+fi
+
+# Parse command-line
+while [[ -n $1 ]]; do
+  case $1 in
+    -h | --help)
+      help_message; graceful_exit ;;
+    -* | --*)
+      usage
+      error_exit "unknown option $1" ;;
+    *)
+      user=$1
+      email=$2
+      sshkey="$3"
+      echo "adding new user $user with and pubkey $sshkey" 
+
+      newpw=$(pwgen -1B 10)
+      pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
+
+      useradd -m -p $pwcrypt -s /bin/bash $user || exit 1
+
+      sed -e 's/newusername/$user/g' -e 's/newpassword/$newpw/' email.tmpl | sendmail $email sudoers@tilde.team
+
+      echo "$sshkey" | sudo tee /home/$user/.ssh/authorized_keys
+      toot "welcome new user ~$user!"
+
+      break
+      ;;
+
+  esac
+  shift
+done
+
+
+graceful_exit
+
