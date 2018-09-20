@@ -1,0 +1,11 @@
+#!/usr/bin/python3
+
+import os,argparse
+
+parser = argparse.ArgumentParser(prog="makeuser",description="A user adding script.")
+parser.add_argument("username",help="Username of user.")
+parser.add_argument("email",help="Email of user.")
+parser.add_argument("key",help="The user's SSH pubkey.")
+args = parser.parse_args()
+
+print(args.username,args.email,args.key)
