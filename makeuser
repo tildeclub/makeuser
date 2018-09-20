@@ -97,7 +97,7 @@ while [[ -n $1 ]]; do
       newpw=$(pwgen -1B 10)
       pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
 
-      useradd -m -p $pwcrypt -s /bin/bash $user || exit 1
+      useradd -m -g 100 -p $pwcrypt -s /bin/bash $user || exit 1
 
       sed -e "s/newusername/$user/g" -e "s/newpassword/$newpw/" email.tmpl | sendmail $email sudoers@tilde.team
 
