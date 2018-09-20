@@ -52,7 +52,7 @@ signal_exit() { # Handle trapped signals
 }
 
 usage() {
-  echo -e "usage: $PROGNAME [-h|--help] <username> <email> <pubkey>"
+  echo -e "usage: $PROGNAME [-h|--help] <username> <email> \"<pubkey>\""
 }
 
 help_message() {
@@ -99,7 +99,7 @@ while [[ -n $1 ]]; do
 
       useradd -m -p $pwcrypt -s /bin/bash $user || exit 1
 
-      sed -e 's/newusername/$user/g' -e 's/newpassword/$newpw/' email.tmpl | sendmail $email sudoers@tilde.team
+      sed -e "s/newusername/$user/g" -e "s/newpassword/$newpw/" email.tmpl | sendmail $email sudoers@tilde.team
 
       echo "$sshkey" | sudo tee /home/$user/.ssh/authorized_keys
       toot "welcome new user ~$user!"
