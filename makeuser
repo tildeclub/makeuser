@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 
-import os,argparse
+import subprocess,argparse,random,string
+from ctypes import cdll,c_char_p
+libc = cdll.LoadLibrary("libc.so.6")
 
 parser = argparse.ArgumentParser(prog="makeuser",description="A user adding script.")
 parser.add_argument("username",help="Username of user.")
@@ -8,4 +10,9 @@ parser.add_argument("email",help="Email of user.")
 parser.add_argument("key",help="The user's SSH pubkey.")
 args = parser.parse_args()
 
-print(args.username,args.email,args.key)
+pw = "".join(random.sample(string.ascii_letters+string.digits,20))
+cr = libc.crypt(pw)
+
+subprocess.run("sudo useradd -m -g 100 -p {} -s /bin/bash {}".format(cr,args.user)
+subprocess.run("echo '{}' | sudo tee /home/{}/.ssh/authorized_keys".format(args.key,args.user))
+subprocess.run("sed -e 's/username/{}/' -e 's/password/{}/' email.tmpl | sendmail {} sudoers@tilde.team")
