@@ -1,116 +1,37 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
 # makeuser - tilde.team new user creation
-
-# Copyright 2018, Ben Harris <ben@tilde.team>
-  
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License at <http://www.gnu.org/licenses/> for
-# more details.
-
-# Usage: makeuser [-h|--help]
-
-# Revision history:
-# 2018-09-20 Created by new_script ver. 3.3
+# Usage: makeuser [-h|--help] <username> <email> "<pubkey>"
 # ---------------------------------------------------------------------------
 
 PROGNAME=${0##*/}
 VERSION="0.1"
 
-clean_up() { # Perform pre-exit housekeeping
-  return
-}
-
 error_exit() {
   echo -e "${PROGNAME}: ${1:-"Unknown Error"}" >&2
-  clean_up
   exit 1
-}
-
-graceful_exit() {
-  clean_up
-  exit
-}
-
-signal_exit() { # Handle trapped signals
-  case $1 in
-    INT)
-      error_exit "Program interrupted by user" ;;
-    TERM)
-      echo -e "\n$PROGNAME: Program terminated" >&2
-      graceful_exit ;;
-    *)
-      error_exit "$PROGNAME: Terminating on unknown signal" ;;
-  esac
 }
 
 usage() {
   echo -e "usage: $PROGNAME [-h|--help] <username> <email> \"<pubkey>\""
 }
 
-help_message() {
-  cat <<- _EOF_
-  $PROGNAME ver. $VERSION
-  tilde.team new user creation
+[[ $(id -u) != 0 ]] && error_exit "you must be the superuser to run this script."
 
-  $(usage)
+case $1 in
+  -h | --help)
+    usage; exit ;;
+  -* | --*)
+    usage; error_exit "unknown option $1" ;;
+  *)
+    [[ $# -ne 3 ]] && error_exit "not enough args"
+    echo "adding new user $1"
+    newpw=$(pwgen -1B 10)
+    pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
+    useradd -m -g 100 -p $pwcrypt -s /bin/bash $1 || exit 1
 
-  Options:
-  -h, --help  Display this help message and exit.
+    sed -e "s/newusername/$1/g" -e "s/newpassword/$newpw/" email.tmpl | sendmail $2 sudoers@tilde.team
 
-  NOTE: You must be the superuser to run this script.
-
-_EOF_
-  return
-}
-
-# Trap signals
-trap "signal_exit TERM" TERM HUP
-trap "signal_exit INT"  INT
-
-# Check for root UID
-if [[ $(id -u) != 0 ]]; then
-  error_exit "you must be the superuser to run this script."
-fi
-
-# Parse command-line
-while [[ -n $1 ]]; do
-  case $1 in
-    -h | --help)
-      help_message; graceful_exit ;;
-    -* | --*)
-      usage
-      error_exit "unknown option $1" ;;
-    *)
-      user=$1
-      email=$2
-      sshkey="$3"
-      echo "adding new user $user with and pubkey $sshkey" 
-
-      newpw=$(pwgen -1B 10)
-      pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
-
-      useradd -m -g 100 -p $pwcrypt -s /bin/bash $user || exit 1
-
-      sed -e "s/newusername/$user/g" -e "s/newpassword/$newpw/" email.tmpl | sendmail $email sudoers@tilde.team
-
-      echo "$sshkey" | sudo tee /home/$user/.ssh/authorized_keys
-      toot "welcome new user ~$user!"
-
-      break
-      ;;
-
-  esac
-  shift
-done
-
-
-graceful_exit
-
+    echo "$3" | tee /home/$1/.ssh/authorized_keys
+    toot "welcome new user ~$1!" ;;
+esac
