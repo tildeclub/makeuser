@@ -13,4 +13,4 @@ cr = crypt.crypt(pw)
 
 subprocess.run("sudo useradd -m -g 100 -p {} -s /bin/bash {}".format(cr,args.username),shell=True)
 subprocess.run("echo '{}' | sudo tee /home/{}/.ssh/authorized_keys".format(args.key,args.username),shell=True)
-subprocess.run("sed -e 's/username/{}/' -e 's/password/{}/' email.tmpl | sendmail {} sudoers@tilde.team",shell=True)
+subprocess.run("sed -e 's/newusername/{}/' -e 's/newpassword/{}/' email.tmpl | sendmail {} sudoers@tilde.team".format(args.username,pw,args.email),shell=True)
