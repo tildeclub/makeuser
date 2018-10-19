@@ -30,7 +30,7 @@ case $1 in
     pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
     useradd -m -g 100 -p $pwcrypt -s /bin/bash $1 || exit 1
 
-    sed -e "s/newusername/$1/g" -e "s/newpassword/$newpw/" email.tmpl | sendmail $2 sudoers@tilde.team
+    sed -e "s/newusername/$1/g" -e "s/newpassword/$newpw/" email.tmpl | sendmail $1 $2 sudoers@tilde.team
 
     echo "$3" | tee /home/$1/.ssh/authorized_keys
     toot "welcome new user ~$1!" ;;
