@@ -1,16 +1,47 @@
-#!/usr/bin/python3
+#!/bin/bash
+# ---------------------------------------------------------------------------
+# makeuser - tilde.team new user creation
+# Usage: makeuser [-h|--help] <username> <email> "<pubkey>"
+# ---------------------------------------------------------------------------
 
-import subprocess,argparse,random,string,crypt
+PROGNAME=${0##*/}
+VERSION="0.1"
 
-parser = argparse.ArgumentParser(prog="makeuser",description="A user adding script.")
-parser.add_argument("username",help="Username of user.")
-parser.add_argument("email",help="Email of user.")
-parser.add_argument("key",help="The user's SSH pubkey.")
-args = parser.parse_args()
+error_exit() {
+  echo -e "${PROGNAME}: ${1:-"Unknown Error"}" >&2
+  exit 1
+}
 
-pw = "".join(random.sample(string.ascii_letters+string.digits,20))
-cr = crypt.crypt(pw)
+usage() {
+  echo -e "usage: $PROGNAME [-h|--help] <username> <email> \"<pubkey>\""
+}
 
-subprocess.run("sudo useradd -m -g 100 -p {} -s /bin/bash {}".format(cr,args.username),shell=True)
-subprocess.run("echo '{}' | sudo tee /home/{}/.ssh/authorized_keys".format(args.key,args.username),shell=True)
-subprocess.run("sed -e 's/newusername/{}/' -e 's/newpassword/{}/' email.tmpl | sendmail {} sudoers@tilde.team".format(args.username,pw,args.email),shell=True)
+sub_to_list() {
+  echo "
+From: $1
+Subject: subscribe
+" | sudo -u $1 sendmail tildeteam-join@lists.tildeverse.org
+}
+
+[[ $(id -u) != 0 ]] && error_exit "you must be the superuser to run this script."
+
+case $1 in
+  -h | --help)
+    usage; exit ;;
+  -* | --*)
+    usage; error_exit "unknown option $1" ;;
+  *)
+    [[ $# -ne 3 ]] && error_exit "not enough args"
+    echo "adding new user $1"
+    newpw=$(pwgen -1B 10)
+    pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
+    useradd -m -g 100 -p $pwcrypt -s /bin/bash $1 || exit 1
+
+    sed -e "s/newusername/$1/g" -e "s/newpassword/$newpw/" email.tmpl | sendmail $1 $2 sudoers@tilde.team
+    sub_to_list $1
+    sudo -u znc /home/znc/add_znc_user.sh $1
+
+    echo "$3" | tee /home/$1/.ssh/authorized_keys
+    toot "welcome new user ~$1!" ;;
+esac
+
