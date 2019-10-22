@@ -37,7 +37,7 @@ case $1 in
 
     echo "adding new user $1"
     newpw=$(pwgen -1B 10)
-    pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
+    pwcrypt=$(perl -e "print crypt('${newpw}', join '', ('.', '/', 0..9, 'A'..'Z', 'a'..'z')[rand 64, rand 64]);")
     sudo useradd -m -g 100 -p "$pwcrypt" -s /bin/bash $1 \
         || error_exit "couldn't add user"
 
