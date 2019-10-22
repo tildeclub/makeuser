@@ -32,14 +32,15 @@ case $1 in
     [[ $# -ne 3 ]] && error_exit "not enough args"
 
     if id $1 > /dev/null 2>&1; then
-	error_exit "user $1 already added"
+	exit 0
     fi
 
     echo "adding new user $1"
     newpw=$(pwgen -1B 10)
-    pwcrypt=$(perl -e "print crypt('${newpw}', 'sa');")
-    sudo useradd -m -g 100 -p "$pwcrypt" -s /bin/bash $1 \
+    sudo useradd -m -g 100 -s /bin/bash $1 \
         || error_exit "couldn't add user"
+    echo "$1:$newpw" | sudo chpasswd
+    sudo chage -d 0 $1
 
     echo "sending welcome mail"
     sed -e "s/newusername/$1/g" -e "s/newpassword/$newpw/" /usr/local/bin/welcome-email.tmpl \
