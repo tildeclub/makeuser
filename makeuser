@@ -50,7 +50,7 @@ case $1 in
     sub_to_list $1
 
     echo "removing .git from new homedir"
-    rm -rf /home/$1/.git
+    sudo rm -rf /home/$1/.git
 
     echo "adding ssh pubkey"
     echo "$3" | sudo tee /home/$1/.ssh/authorized_keys
