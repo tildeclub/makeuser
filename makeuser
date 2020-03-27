@@ -37,7 +37,7 @@ case $1 in
 
     echo "adding new user $1"
     newpw=$(pwgen -1B 10)
-    sudo useradd -m -g 100 -s /bin/bash $1 \
+    sudo useradd -m -g 100 -s /usr/bin/bash $1 \
         || error_exit "couldn't add user"
     echo "$1:$newpw" | sudo chpasswd
     sudo chage -d 0 $1
@@ -55,5 +55,10 @@ case $1 in
     echo "adding ssh pubkey"
     echo "$3" | sudo tee /home/$1/.ssh/authorized_keys
 
-esac
 
+    echo "announcing new user on mastodon"
+    toot "welcome new user ~$1!"
+
+
+
+esac
