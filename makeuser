@@ -40,7 +40,6 @@ case $1 in
     sudo useradd -m -g 100 -s /usr/bin/bash $1 \
         || error_exit "couldn't add user"
     echo "$1:$newpw" | sudo chpasswd
-    sudo chage -d 0 $1
 
     echo "sending welcome mail"
     sed -e "s/newusername/$1/g" -e "s/newpassword/$newpw/" /usr/local/bin/welcome-email.tmpl \
