@@ -53,7 +53,9 @@ case $1 in
 
     echo "adding ssh pubkey"
     echo "$3" | sudo tee /home/$1/.ssh/authorized_keys
-
+    
+    echo "enabling email forwarding"
+    echo "$2" | sudo tee /home/$1/.forward
 
     echo "announcing new user on mastodon"
     toot "welcome new user ~$1!"
