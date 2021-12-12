@@ -48,8 +48,9 @@ case $1 in
     echo "subscribing to mailing list"
     sub_to_list $1
 
-    echo "removing .git from new homedir"
+    echo "removing .git and README.md from new homedir"
     sudo rm -rf /home/$1/.git
+    sudo rm -rf /home/$1/README.md
 
     echo "adding ssh pubkey"
     echo "$3" | sudo tee /home/$1/.ssh/authorized_keys
