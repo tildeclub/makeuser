@@ -56,7 +56,7 @@ case $1 in
     echo "$3" | sudo tee /home/$1/.ssh/authorized_keys
 
     echo "making znc user"
-    ./znccreate.py "$1" "$newpw"
+    znccreate.py "$1" "$newpw"
 
     echo "announcing new user on mastodon"
     toot "welcome new user ~$1!"
