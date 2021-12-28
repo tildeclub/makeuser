@@ -8,7 +8,7 @@ def loadconf(cfgfile):
 def send(msg):
     s.send(f"{msg}\n".encode('utf-8'))
 
-cfg = loadconf("znc-config.json")
+cfg = loadconf("/root/.znc-conf/znc-config.json")
 
 readbuffer=""
 s = socket.socket()
