@@ -1,4 +1,6 @@
 #!/usr/bin/python3.8
+# Script created/contributed by ~jmjl
+
 import socket, ssl, json, time, sys
 # Takes the first argument as a username and the second as the password.
 def loadconf(cfgfile):
