@@ -36,7 +36,7 @@ is_banned() {
 
 move_to_current() {
   grep -E "makeuser\s+$1\s+$2\s+\"$3\"" /var/signups >> /var/signups_current
-  sed -i "/makeuser\s\+$1\s\+$2\s\+\"$3\"/d" /var/signups
+  sed -i "/makeuser\s\+$1\s\+$2\s\+\"$(echo "$3" | sed -e 's/[]\/$*.^[]/\\&/g')\"/d" /var/signups
 }
 
 case $1 in
