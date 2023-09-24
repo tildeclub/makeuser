@@ -23,6 +23,22 @@ Subject: subscribe
 " | sudo -u $1 sendmail tildeclub-join@lists.tildeverse.org
 }
 
+is_banned() {
+  while read -r line; do
+    banned_user=$(echo "$line" | awk '{print $1}')
+    banned_email=$(echo "$line" | awk '{print $2}')
+    if [[ "$1" == "$banned_user" || "$2" == "$banned_email" ]]; then
+      return 0
+    fi
+  done < /var/signups_banned
+  return 1
+}
+
+move_to_current() {
+  grep -E "makeuser\s+$1\s+$2\s+\"$3\"" /var/signups >> /var/signups_current
+  sed -i "/makeuser\s\+$1\s\+$2\s\+\"$3\"/d" /var/signups
+}
+
 case $1 in
   -h | --help)
     usage; exit ;;
@@ -31,8 +47,12 @@ case $1 in
   *)
     [[ $# -ne 3 ]] && error_exit "not enough args"
 
+    if is_banned "$1" "$2"; then
+      error_exit "user or email is banned"
+    fi
+
     if id $1 > /dev/null 2>&1; then
-	exit 0
+        exit 0
     fi
 
     echo "adding new user $1"
@@ -52,11 +72,14 @@ case $1 in
     sudo rm -rf /home/$1/.git
     sudo rm -rf /home/$1/README.md
 
+    # Changing last edit date.
+    sudo touch /home/$1/.new_user
+
     echo "adding ssh pubkey"
     echo "$3" | sudo tee /home/$1/.ssh/authorized_keys
 
-    echo "making znc user"
-    znccreate.py "$1" "$newpw"
+    echo "moving user from signups to signups_current"
+    move_to_current $1 $2 "$3"
 
     echo "announcing new user on mastodon"
     toot "welcome new user ~$1!"
