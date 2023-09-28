@@ -35,9 +35,21 @@ is_banned() {
 }
 
 move_to_current() {
-  grep -E "makeuser\s+$1\s+$2\s+\"$3\"" /var/signups >> /var/signups_current
-  sed -i "/makeuser\s\+$1\s\+$2\s\+\"$(echo "$3" | sed -e 's/[]\/$*.^[]/\\&/g')\"/d" /var/signups
+  # Try to find the user in the signups file and append to signups_current
+  if grep -E "makeuser\s+$1\s+$2\s+\"$3\"" /var/signups >> /var/signups_current; then
+    echo "User moved to signups_current."
+  else
+    echo "User not found in signups."
+  fi
+
+  # Try to remove the user from the signups file
+  if sed -i "/makeuser\s\+$1\s\+$2\s\+\"$(echo "$3" | sed -e 's/[]\/$*.^[]/\\&/g')\"/d" /var/signups; then
+    echo "User removed from signups."
+  else
+    echo "Failed to remove user from signups."
+  fi
 }
+
 
 case $1 in
   -h | --help)
