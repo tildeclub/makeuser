@@ -35,21 +35,28 @@ is_banned() {
 }
 
 move_to_current() {
-  # Try to find the user in the signups file and append to signups_current
-  if grep -E "makeuser\s+$1\s+$2\s+\"$3\"" /var/signups >> /var/signups_current; then
+  exec 200>/var/lock/makeuser.lock
+  flock -n 200 || { echo "Couldn't acquire lock."; exit 1; }
+
+  grep_pattern="makeuser\s+$1\s+$2\s+\"$3\""
+  if grep -E "$grep_pattern" /var/signups >> /var/signups_current; then
     echo "User moved to signups_current."
+    if grep -q -E "$grep_pattern" /var/signups_current; then
+      echo "User verified in signups_current."
+      grep -vE "$grep_pattern" /var/signups > temp && mv temp /var/signups
+      chown nginx:root /var/signups
+      chmod 660 /var/signups
+      chmod 660 /var/signups_banned
+      chmod 660 /var/signups_current
+      echo "User removed from signups."
+    else
+      echo "User not found in signups_current. Aborting."
+    fi
   else
     echo "User not found in signups."
   fi
-
-  # Try to remove the user from the signups file
-  if sed -i "/makeuser\s\+$1\s\+$2\s\+\"$(echo "$3" | sed -e 's/[]\/$*.^[]/\\&/g')\"/d" /var/signups; then
-    echo "User removed from signups."
-  else
-    echo "Failed to remove user from signups."
-  fi
+  exec 200>&-
 }
-
 
 case $1 in
   -h | --help)
@@ -92,6 +99,9 @@ case $1 in
 
     echo "moving user from signups to signups_current"
     move_to_current $1 $2 "$3"
+
+    echo "making znc user"
+    /usr/local/bin/znccreate.py "$1" "$newpw"
 
     echo "announcing new user on mastodon"
     toot "welcome new user ~$1!"
