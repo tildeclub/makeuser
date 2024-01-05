@@ -1,109 +1,79 @@
-#!/bin/bash
+#!/bin/sh
 # ---------------------------------------------------------------------------
 # makeuser - tilde.club new user creation
 # Usage: makeuser [-h|--help] <username> <email> "<pubkey>"
 # ---------------------------------------------------------------------------
 
 PROGNAME=${0##*/}
-VERSION="0.1"
+VERSION="0.2"
 
 error_exit() {
-  echo -e "${PROGNAME}: ${1:-"Unknown Error"}" >&2
-  exit 1
+    printf "%s: %s\n" "$PROGNAME" "${1:-"Unknown Error"}" >&2
+    exit 1
 }
 
 usage() {
-  echo -e "usage: $PROGNAME [-h|--help] <username> <email> \"<pubkey>\""
+    printf "usage: %s %s [-h|--help] <username> <email> \"<pubkey>\"\n" "$PROGNAME" "$VERSION"
 }
 
 sub_to_list() {
-  echo "
+    sudo -u "$1" sendmail tildeclub-join@lists.tildeverse.org << MAIL
 From: $1
 Subject: subscribe
-" | sudo -u $1 sendmail tildeclub-join@lists.tildeverse.org
-}
-
-is_banned() {
-  while read -r line; do
-    banned_user=$(echo "$line" | awk '{print $1}')
-    banned_email=$(echo "$line" | awk '{print $2}')
-    if [[ "$1" == "$banned_user" || "$2" == "$banned_email" ]]; then
-      return 0
-    fi
-  done < /var/signups_banned
-  return 1
-}
-
-move_to_current() {
-  exec 200>/var/lock/makeuser.lock
-  flock -n 200 || { echo "Couldn't acquire lock."; exit 1; }
-
-  grep_pattern="makeuser\s+$1\s+$2\s+\"$3\""
-  if grep -E "$grep_pattern" /var/signups >> /var/signups_current; then
-    echo "User moved to signups_current."
-    if grep -q -E "$grep_pattern" /var/signups_current; then
-      echo "User verified in signups_current."
-      grep -vE "$grep_pattern" /var/signups > temp && mv temp /var/signups
-      chown nginx:root /var/signups
-      chmod 660 /var/signups
-      chmod 660 /var/signups_banned
-      chmod 660 /var/signups_current
-      echo "User removed from signups."
-    else
-      echo "User not found in signups_current. Aborting."
-    fi
-  else
-    echo "User not found in signups."
-  fi
-  exec 200>&-
+MAIL
 }
 
 case $1 in
-  -h | --help)
-    usage; exit ;;
-  -* | --*)
-    usage; error_exit "unknown option $1" ;;
-  *)
-    [[ $# -ne 3 ]] && error_exit "not enough args"
+    -h | --help)
+        usage; exit ;;
+    -* | --*)
+        usage; error_exit "unknown option $1" ;;
+    *)
+        if [ $# -ne 3 ]; then
+            error_exit "not enough args"
+        fi
 
-    if is_banned "$1" "$2"; then
-      error_exit "user or email is banned"
-    fi
+        if id "$1" > /dev/null 2>&1; then
+            exit 0
+        fi
 
-    if id $1 > /dev/null 2>&1; then
-        exit 0
-    fi
+        printf "adding new user %s\n" "$1"
+        newpw=$(pwgen -1B 20)
+        sudo useradd -m -g 100 -s /bin/bash "$1" \
+            || error_exit "couldn't add user"
+        printf "%s:%s\n" "$1" "$newpw" | sudo chpasswd
 
-    echo "adding new user $1"
-    newpw=$(pwgen -1B 10)
-    sudo useradd -m -g 100 -s /usr/bin/bash $1 \
-        || error_exit "couldn't add user"
-    echo "$1:$newpw" | sudo chpasswd
+        printf "sending welcome mail\n"
+        sed -e "s/newusername/$1/g" \
+            -e "s/newpassword/$newpw/" \
+            -e "s/newtoemail/$2/" \
+            /usr/local/bin/welcome-email.tmpl \
+            | sendmail "$1" "$2" root@tilde.club
 
-    echo "sending welcome mail"
-    sed -e "s/newusername/$1/g" -e "s/newpassword/$newpw/" /usr/local/bin/welcome-email.tmpl \
-        | sendmail $1 $2 root
+        printf "subscribing to mailing list\n"
+        sub_to_list "$1"
 
-    echo "subscribing to mailing list"
-    sub_to_list $1
+        printf "adding ssh pubkey\n"
+        printf "%s\n" "$3" | sudo tee "/home/$1/.ssh/authorized_keys"
 
-    echo "removing .git and README.md from new homedir"
-    sudo rm -rf /home/$1/.git
-    sudo rm -rf /home/$1/README.md
+        printf "\nannouncing new user on mastodon\n"
+        /usr/local/bin/toot "welcome new user ~$1!"
 
-    # Changing last edit date.
-    sudo touch /home/$1/.new_user
+        printf "cleanup current signup\n"
+        sudo sed -i"" "/\b$1\b/d" /var/signups_current
+       
+        printf "removing .git from new homedir\n"
+        sudo rm -rf /home/$1/.git
 
-    echo "adding ssh pubkey"
-    echo "$3" | sudo tee /home/$1/.ssh/authorized_keys
+        printf "fix sorting in /etc/passwd\n"
+        sudo pwck -s
 
-    echo "moving user from signups to signups_current"
-    move_to_current $1 $2 "$3"
+#        printf "applying disk quota\n"
+#        sudo setquota -u "$1" 1048576 3145728 0 0 /home
 
-    echo "making znc user"
-    /usr/local/bin/znccreate.py "$1" "$newpw"
-
-    echo "announcing new user on mastodon"
-    toot "welcome new user ~$1!"
+        printf "making znc user\n"
+        /usr/local/bin/znccreate.py "$1" "$newpw"
 
 esac
+
+
