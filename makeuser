@@ -61,19 +61,23 @@ case $1 in
 
         printf "cleanup current signup\n"
         sudo sed -i"" "/\b$1\b/d" /var/signups_current
-       
+
         printf "removing .git from new homedir\n"
         sudo rm -rf /home/$1/.git
+
+        printf "removing skel git README.md\n"
+        sudo rm /home/$1/README.md
 
         printf "fix sorting in /etc/passwd\n"
         sudo pwck -s
 
-#        printf "applying disk quota\n"
-#        sudo setquota -u "$1" 1048576 3145728 0 0 /home
+        printf "applying disk quota\n"
+        sudo xfs_quota -x -c "limit -u bsoft=1G bhard=3G $1"
 
         printf "making znc user\n"
-        /usr/local/bin/znccreate.py "$1" "$newpw"
+        /usr/local/bin/znccreate.py "$1" "$newpw" "MaxNetworks=3"
+
+        printf "Adding user to Helpdesk\n"
+        /usr/local/bin/helpdesk_admin.sh "add" "$1" "$2"
 
 esac
-
-
