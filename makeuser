@@ -5,7 +5,9 @@
 # ---------------------------------------------------------------------------
 
 PROGNAME=${0##*/}
-VERSION="0.2"
+VERSION="0.3"
+CLUB_GROUP_ID="100"
+WELCOME_EMAIL_TEMPLATE="/usr/local/bin/welcome-email.tmpl"
 
 error_exit() {
     printf "%s: %s\n" "$PROGNAME" "${1:-"Unknown Error"}" >&2
@@ -23,11 +25,97 @@ Subject: subscribe
 MAIL
 }
 
-case $1 in
+send_welcome_mail() {
+    welcome_username=$1
+    welcome_password=$2
+    welcome_email=$3
+
+    if [ ! -r "$WELCOME_EMAIL_TEMPLATE" ]; then
+        error_exit "welcome email template is not readable"
+    fi
+
+    {
+        printf "%s\n" "$welcome_username"
+        printf "%s\n" "$welcome_email"
+        printf "%s\n" "$welcome_password"
+    } | python3 -c '
+import re
+import sys
+
+template_path = "/usr/local/bin/welcome-email.tmpl"
+
+username = sys.stdin.readline().rstrip("\r\n")
+email = sys.stdin.readline().rstrip("\r\n")
+password = sys.stdin.readline().rstrip("\r\n")
+
+if not username or not email or not password:
+    sys.stderr.write("missing username, email, or password\n")
+    sys.exit(1)
+
+if "\n" in username or "\r" in username or "\n" in email or "\r" in email:
+    sys.stderr.write("unsafe username or email value\n")
+    sys.exit(1)
+
+with open(template_path, "r", encoding="utf-8", errors="replace") as handle:
+    text = handle.read()
+
+text = text.replace("newusername", username)
+text = text.replace("newpassword", password)
+text = text.replace("newtoemail", email)
+
+lines = text.splitlines(True)
+
+has_header_block = bool(lines and re.match(r"^[A-Za-z0-9-]+:", lines[0]))
+
+if has_header_block:
+    header_end = None
+
+    for index, line in enumerate(lines):
+        if line.rstrip("\r\n") == "":
+            header_end = index
+            break
+
+    if header_end is None:
+        header_end = len(lines)
+        header_lines = lines
+        body_lines = ["\n"]
+    else:
+        header_lines = lines[:header_end]
+        body_lines = lines[header_end:]
+
+    has_recipient_header = any(
+        re.match(r"^(to|cc|bcc):", header, re.IGNORECASE)
+        for header in header_lines
+    )
+
+    output = []
+
+    output.extend(header_lines)
+
+    if not has_recipient_header:
+        output.append(f"To: {email}\n")
+
+    output.append(f"Bcc: {username}, root@tilde.club\n")
+    output.extend(body_lines)
+
+    sys.stdout.write("".join(output))
+else:
+    sys.stdout.write(f"To: {email}\n")
+    sys.stdout.write(f"Bcc: {username}, root@tilde.club\n")
+    sys.stdout.write("\n")
+    sys.stdout.write(text)
+' | sendmail -oi -t
+}
+
+case ${1:-} in
     -h | --help)
-        usage; exit ;;
+        usage
+        exit
+        ;;
     -* | --*)
-        usage; error_exit "unknown option $1" ;;
+        usage
+        error_exit "unknown option $1"
+        ;;
     *)
         if [ $# -ne 3 ]; then
             error_exit "not enough args"
@@ -39,22 +127,28 @@ case $1 in
 
         printf "adding new user %s\n" "$1"
         newpw=$(pwgen -1B 20)
-        sudo useradd -m -g 100 -s /bin/bash "$1" \
+        trap 'unset newpw' 0 HUP INT TERM
+
+        printf "creating matching primary group for %s\n" "$1"
+        if ! getent group "$1" > /dev/null 2>&1; then
+            sudo groupadd "$1" || error_exit "couldn't add group"
+        fi
+
+        sudo useradd -m -g "$1" -G "$CLUB_GROUP_ID" -s /bin/bash "$1" \
             || error_exit "couldn't add user"
-        printf "%s:%s\n" "$1" "$newpw" | sudo chpasswd
+
+        printf "%s:%s\n" "$1" "$newpw" | sudo chpasswd \
+            || error_exit "couldn't set user password"
 
         printf "sending welcome mail\n"
-        sed -e "s/newusername/$1/g" \
-            -e "s/newpassword/$newpw/" \
-            -e "s/newtoemail/$2/" \
-            /usr/local/bin/welcome-email.tmpl \
-            | sendmail "$1" "$2" root@tilde.club
+        send_welcome_mail "$1" "$newpw" "$2" \
+            || error_exit "couldn't send welcome mail"
 
         printf "subscribing to mailing list\n"
         sub_to_list "$1"
 
         printf "adding ssh pubkey\n"
-        printf "%s\n" "$3" | sudo tee "/home/$1/.ssh/authorized_keys"
+        printf "%s\n" "$3" | sudo tee "/home/$1/.ssh/authorized_keys" > /dev/null
 
         printf "\nannouncing new user on mastodon\n"
         /usr/local/bin/toot "welcome new user ~$1!"
@@ -63,10 +157,10 @@ case $1 in
         sudo sed -i"" "/\b$1\b/d" /var/signups_current
 
         printf "removing .git from new homedir\n"
-        sudo rm -rf /home/$1/.git
+        sudo rm -rf "/home/$1/.git"
 
         printf "removing skel git README.md\n"
-        sudo rm /home/$1/README.md
+        sudo rm "/home/$1/README.md"
 
         printf "fix sorting in /etc/passwd\n"
         sudo pwck -s
@@ -75,11 +169,15 @@ case $1 in
         sudo xfs_quota -x -c "limit -u bsoft=1G bhard=3G $1"
 
         printf "making znc user\n"
-        /usr/local/bin/znccreate.py "$1" "$newpw" "MaxNetworks=3"
+        printf "%s\n" "$newpw" | /usr/local/bin/znccreate.py "$1" --password-stdin "MaxNetworks=3" \
+            || error_exit "couldn't add znc user"
+
+        unset newpw
+        trap - 0 HUP INT TERM
 
         printf "Adding user to Helpdesk\n"
-        /usr/local/bin/helpdesk_admin.sh "add" "$1" "$2"
+        printf "%s\n" "$2" | /usr/local/bin/helpdesk_admin.sh "add" "$1" --email-stdin \
+            || error_exit "couldn't add user to Helpdesk"
 
+        ;;
 esac
-
-

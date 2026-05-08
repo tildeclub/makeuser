@@ -1,0 +1,160 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# rmuser - tilde.club user removal helper
+# Usage: rmuser [-h|--help] <username>
+# ---------------------------------------------------------------------------
+
+PROGNAME=${0##*/}
+VERSION="0.2"
+SIGNUPS_FILE="/var/signups"
+
+error_exit() {
+    printf "%s: %s\n" "$PROGNAME" "${1:-"Unknown Error"}" >&2
+    exit 1
+}
+
+usage() {
+    printf "usage: %s %s [-h|--help] <username>\n" "$PROGNAME" "$VERSION"
+}
+
+lookup_email_from_signups() {
+    user="$1"
+
+    if [ ! -r "$SIGNUPS_FILE" ]; then
+        printf "warning: cannot read %s to discover email\n" "$SIGNUPS_FILE" >&2
+        return 0
+    fi
+
+    awk -v u="$user" '
+        /^[[:space:]]*#/ { next }
+        {
+            n = split($0, fields, /[\t ,;:]+/)
+            found_user = 0
+            for (i = 1; i <= n; i++) {
+                if (fields[i] == u) {
+                    found_user = 1
+                }
+            }
+            if (found_user) {
+                for (i = 1; i <= n; i++) {
+                    if (fields[i] ~ /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/) {
+                        print fields[i]
+                        exit
+                    }
+                }
+            }
+        }
+    ' "$SIGNUPS_FILE"
+}
+
+comment_out_signup() {
+    user="$1"
+
+    if [ ! -f "$SIGNUPS_FILE" ]; then
+        printf "warning: %s does not exist, skipping signup comment\n" "$SIGNUPS_FILE" >&2
+        return 0
+    fi
+
+    if ! sudo test -w "$SIGNUPS_FILE"; then
+        printf "warning: %s is not writable, skipping signup comment\n" "$SIGNUPS_FILE" >&2
+        return 0
+    fi
+
+    tmpfile=$(mktemp) || return 1
+
+    awk -v u="$user" '
+        /^[[:space:]]*#/ {
+            print
+            next
+        }
+        {
+            line = $0
+            n = split($0, fields, /[\t ,;:]+/)
+            found_user = 0
+            for (i = 1; i <= n; i++) {
+                if (fields[i] == u) {
+                    found_user = 1
+                }
+            }
+            if (found_user) {
+                print "# " line
+            } else {
+                print
+            }
+        }
+    ' "$SIGNUPS_FILE" > "$tmpfile" || {
+        rm -f "$tmpfile"
+        return 1
+    }
+
+    sudo cp "$tmpfile" "$SIGNUPS_FILE" || {
+        rm -f "$tmpfile"
+        return 1
+    }
+
+    rm -f "$tmpfile"
+}
+
+maybe_unsubscribe_list() {
+    email="$1"
+
+    if [ -z "$email" ]; then
+        printf "skipping mailing list unsubscribe (email not found)\n"
+        return 0
+    fi
+
+    printf "sending mailing list unsubscribe request\n"
+    sendmail tildeclub-join@lists.tildeverse.org << MAIL || return 1
+From: $email
+Subject: unsubscribe
+MAIL
+}
+
+case $1 in
+    -h | --help)
+        usage; exit 0 ;;
+    -* | --*)
+        usage; error_exit "unknown option $1" ;;
+    *)
+        if [ $# -ne 1 ]; then
+            usage
+            error_exit "invalid args"
+        fi
+
+        user="$1"
+
+        if ! id "$user" > /dev/null 2>&1; then
+            error_exit "user $user does not exist"
+        fi
+
+        email=$(lookup_email_from_signups "$user")
+        if [ -n "$email" ]; then
+            printf "found email for %s: %s\n" "$user" "$email"
+        else
+            printf "warning: email for %s not found in %s\n" "$user" "$SIGNUPS_FILE" >&2
+        fi
+
+        printf "commenting out %s from %s\n" "$user" "$SIGNUPS_FILE"
+        comment_out_signup "$user" \
+            || printf "warning: failed to comment out %s in %s\n" "$user" "$SIGNUPS_FILE" >&2
+
+        printf "removing user from Helpdesk\n"
+        /usr/local/bin/helpdesk_admin.sh "del" "$user" \
+            || printf "warning: failed to remove %s from Helpdesk\n" "$user" >&2
+
+        printf "removing user from ZNC\n"
+        /usr/local/bin/zncdelete.py "$user" \
+            || printf "warning: failed to remove %s from ZNC\n" "$user" >&2
+
+        maybe_unsubscribe_list "$email" \
+            || printf "warning: failed to send mailing list unsubscribe\n" >&2
+
+        printf "deleting unix account and home directory\n"
+        sudo userdel -r "$user" || error_exit "couldn't delete user"
+
+        printf "fix sorting in /etc/passwd\n"
+        sudo pwck -s || printf "warning: pwck -s reported an issue\n" >&2
+
+        printf "done removing %s\n" "$user"
+        ;;
+esac
